@@ -32,6 +32,7 @@
     Filter by any field, including children fields
         Filtering by parent fields -> will bring all which name matches input 'name' (Ma), like Mateus, Maicon, Marcos
             http://localhost:8000/api/v1/users?name=Ma
+            http://localhost:8000/api/v1/users?name=Ma,Lu
         Filtering by children -> will bring all which relation (companies) matches input 'name' (hospital) from companies table   
             http://localhost:8000/api/v1/users?with[]=company&name=Mat&company[name]=hospital
 

@@ -321,11 +321,13 @@ abstract class BaseService
      */
     private function where($key, $value): void
     {
+        if(strpos($value, ',' )){
+            $value = explode(',', $value);
+        }
+
         $this->result = $this->result->where(function ($query) use ($key, $value) {
-            if (is_array($value)) {
-                foreach ($value as $column => $condition) {
-                    $query->whereRaw("LOWER({$key}) LIKE LOWER(?)", '%' . $condition . '%');
-                }
+            if (is_array($value)) {                
+                $query->whereIn($key, $value);
                 return;
             }
             if (is_numeric($value)) {

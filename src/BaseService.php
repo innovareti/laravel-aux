@@ -89,7 +89,7 @@ abstract class BaseService
         if (empty($this->request->get('limit'))) {
             $this->request->merge(['limit' => 15]);
         }
-
+        $this->filtersOrder[] = 'created_at';
         foreach ($this->filtersOrder as $key => $value) {
             $filter = $this->request->get($value);
 
@@ -133,7 +133,7 @@ abstract class BaseService
     private function whereBetweenDate($key, $value): void
     {
         $value = explode(',', $value);
-        $this->result = $this->result->whereRaw("date(".$key.") >= '".$value[0]."' AND date(".$key.") <= '".$value[1]."'");
+        $this->result = $this->result->where($key, '>=', $value[0])->where($key, '<=', $value[1]);
     }
 
 

@@ -4,6 +4,7 @@ namespace LaravelAux;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Database\Eloquent\Builder;
 
 abstract class BaseService
 {
@@ -18,7 +19,7 @@ abstract class BaseService
     protected $request;
 
     /**
-     * @var array
+     * @var Builder|array
      */
     protected $result;
 
@@ -316,36 +317,70 @@ abstract class BaseService
     /**
      * Method to get Model Objects by passed Condition
      *
-     * @param $key
-     * @param $value
+     * @param string $key
+     * @param mixed $value
+     * @return void
      */
-    private function where($key, $value): void
+    private function where(string $key, mixed $value): void
     {
-        if(strpos($value, ',' )){
+        // Validar se a chave é uma coluna válida
+        if (!$this->isValidColumn($key)) {
+            return;
+        }
+
+        if (strpos($value, ',')) {
             $value = explode(',', $value);
         }
 
-        $this->result = $this->result->where(function ($query) use ($key, $value) {
-
-            if($encryptedProperties = $this->request->get('encrypted')){
-                foreach($encryptedProperties as $property){
-                    if($property == $key){
-                        $query->whereEncrypted($key, 'LIKE', '%' . $value . '%');
-                            return;
+        $this->result = $this->result->where(function (Builder $query) use ($key, $value) {
+            if ($encryptedProperties = $this->request->get('encrypted')) {
+                foreach ($encryptedProperties as $property) {
+                    if ($property === $key) {
+                        $query->whereEncrypted($key, 'like', '%' . $this->sanitizeValue($value) . '%');
+                        return;
                     }
                 }
             }
 
-            if (is_array($value)) {                
-                $query->whereIn($key, $value);
+            if (is_array($value)) {
+                $sanitizedValues = array_map([$this, 'sanitizeValue'], $value);
+                $query->whereIn($key, $sanitizedValues);
                 return;
             }
+
             if (is_numeric($value)) {
-                $query->where($key, $value);
+                $query->where($key, (float) $value);
             } else {
-                $query->whereRaw("LOWER({$key}) LIKE LOWER(?)", '%' . $value . '%');
+                $query->where($key, 'like', '%' . $this->sanitizeValue($value) . '%');
             }
         });
+    }
+
+    /**
+     * Method to get Model Objects by passed Condition
+     *
+     * @param mixed $value
+     * @return void
+     */
+    private function query(mixed $value): void
+    {
+        $columns = $this->repository->getFillable();
+        $sanitizedValue = $this->sanitizeValue($value);
+
+        foreach ($columns as $column) {
+            if (!$this->isValidColumn($column)) {
+                continue;
+            }
+
+            $type = Schema::getColumnType($this->repository->getTable(), $column);
+            if (!in_array($type, ['integer', 'boolean', 'decimal'])) {
+                $this->result = $this->result->orWhere($column, 'like', '%' . $sanitizedValue . '%');
+            } else {
+                if (is_numeric($value) || is_bool($value)) {
+                    $this->result = $this->result->orWhere($column, $value);
+                }
+            }
+        }
     }
 
     /**
@@ -379,26 +414,6 @@ abstract class BaseService
     }
 
     /**
-     * Method to get Model Objects by passed Condition
-     *
-     * @param $value
-     */
-    private function query($value): void
-    {
-        $columns = $this->repository->getFillable();
-        foreach ($columns as $column) {
-            $type = Schema::getColumnType($this->repository->getTable(), $column);
-            if (!in_array($type, ['integer', 'boolean', 'decimal'])) {
-                $this->result = $this->result->orWhereRaw("LOWER({$column})" . ' LIKE ' . "LOWER('%{$value}%')");
-            } else {
-                if (is_numeric($value) || is_bool($value)) {
-                    $this->result = $this->result->orWhere($column, $value);
-                }
-            }
-        }
-    }
-
-    /**
      * Method to Group Model Objects by passed column
      *
      * @param $column
@@ -411,14 +426,58 @@ abstract class BaseService
     /**
      * Method to Group Model Objects by passed column
      *
-     * @param $column
+     * @param string $value
+     * @return void
      */
-    private function whereInColumn($value): void
+    private function whereInColumn(string $value): void
     {
+        // Validar formato do input
+        if (!preg_match('/^[a-zA-Z0-9_]+\[[^\]]+\]$/', $value)) {
+            return;
+        }
+
         $string = explode('[', $value);
         $column = $string[0];
+        
+        // Validar se a coluna é válida
+        if (!$this->isValidColumn($column)) {
+            return;
+        }
+
         $value = substr($string[1], 0, -1);
-        $value = explode(',', $value);
-        $this->result = $this->result->whereIn($column, $value);
+        $values = explode(',', $value);
+        
+        // Sanitizar valores
+        $sanitizedValues = array_map([$this, 'sanitizeValue'], $values);
+        
+        $this->result = $this->result->whereIn($column, $sanitizedValues);
+    }
+
+    /**
+     * Check if column exists and is valid
+     *
+     * @param string $column
+     * @return bool
+     */
+    private function isValidColumn(string $column): bool
+    {
+        return Schema::hasColumn($this->repository->getTable(), $column) &&
+               (in_array($column, $this->repository->getFillable()) || 
+                in_array($column, $this->repository->getGuarded()));
+    }
+
+    /**
+     * Sanitize value to prevent SQL injection
+     *
+     * @param mixed $value
+     * @return string
+     */
+    private function sanitizeValue(mixed $value): string
+    {
+        if (is_string($value)) {
+            // Remove caracteres especiais que podem ser usados para SQL injection
+            return preg_replace('/[^a-zA-Z0-9\s\-_.,]/', '', $value);
+        }
+        return (string) $value;
     }
 }
